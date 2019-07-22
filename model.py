@@ -43,6 +43,7 @@ class LayoutNet(nn.Module):
             nn.Conv2d(2048, 1024, kernel_size=3, padding=1),
             nn.ReLU(inplace=True)
         )
+
         self.dec2 = nn.Sequential(
             nn.Conv2d(1024*2, 512, kernel_size=3, padding=1),
             nn.ReLU(inplace=True)
@@ -64,83 +65,129 @@ class LayoutNet(nn.Module):
             nn.ReLU(inplace=True)
         )        
         self.dec7 = nn.Sequential(
-            nn.Conv2d(32*2, out_planes, kernel_size=3, padding=1),
+            nn.Conv2d(32*2, 3, kernel_size=3, padding=1),
+            nn.Sigmoid()        #?
+        )        
+
+        self.jointdec2 = nn.Sequential(
+            nn.Conv2d(1024*3, 512, kernel_size=3, padding=1),
             nn.ReLU(inplace=True)
+        )
+        self.jointdec3 = nn.Sequential(
+            nn.Conv2d(512*3, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+        self.jointdec4 = nn.Sequential(
+            nn.Conv2d(256*3, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )
+        self.jointdec5 = nn.Sequential(
+            nn.Conv2d(128*3, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )        
+        self.jointdec6 = nn.Sequential(
+            nn.Conv2d(64*3, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True)
+        )        
+        self.jointdec7 = nn.Sequential(
+            nn.Conv2d(32*3, 8, kernel_size=3, padding=1),
+            nn.Sigmoid()        #?
         )        
 
         
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-      
+        self.upsample = F.interpolate(scale_factor=2, mode='nearest')   # if below code runs ok, try using self.upsample
         
         
     def forward(self, x):
         ## ENCODER
         encoder1 = self.enc1(x)
-        encoder1_ds = self.pool(encoder1)
+        encoder1_ds = self.pool(encoder1)  # ds ==> downsample
         encoder2 = self.enc2(encoder1_ds)
-        encoder2_ds = self.pool(encoder2)
+        encoder2_ds = self.pool(encoder2) # pool2
         encoder3 = self.enc3(encoder2_ds)
-        encoder3_ds = self.pool(encoder3)
+        encoder3_ds = self.pool(encoder3) # pool3
         encoder4 = self.enc4(encoder3_ds)
-        encoder4_ds = self.pool(encoder4)
+        encoder4_ds = self.pool(encoder4) # pool4
         encoder5 = self.enc5(encoder4_ds)
-        encoder5_ds = self.pool(encoder5)
-        encoder6 = self.enc6(encoder5_ds)
-        encoder6_ds = self.pool(encoder6)
-        encoder7 = self.enc7(encoder6_ds)
-        encoder7_ds = self.pool(encoder7)
-
+        encoder5_ds = self.pool(encoder5) # pool5
+        encoder6 = self.enc6(encoder5_ds) # conv6_relu 
+        encoder6_ds = self.pool(encoder6) # pool6
+        encoder7 = self.enc7(encoder6_ds) # conv7_relu 
+        encoder7_ds = self.pool(encoder7) # pool7
 
 
         ## DECODER
+        
+        unpool00 = F.interpolate(encoder7_ds,  # AKA pool7
+                                    scale_factor=2, mode='nearest')
+        decoder1 = torch.cat([
+            self.dec1(unpool00),  #deconv00_relu
+            encoder6_ds  # AKA pool6
+            ]) # unpool0_
+        decoder2 = torch.cat([
+            self.dec2(F.interpolate(decoder1, #unpool0_
+                                    scale_factor=2, mode='nearest')
+                     ), #deconv0_relu 
+            encoder5_ds # pool5
+            ]) #unpool1_ 
+        decoder3 = torch.cat([
+            self.dec3(F.interpolate(decoder2, #unpool1_
+                                    scale_factor=2, mode='nearest')
+                     ), #deconv1_relu 
+            encoder4_ds # pool4
+        ]) #unpool2_ 
+        decoder4 = torch.cat([
+            self.dec4(F.interpolate(decoder3, #unpool2_
+                                    scale_factor=2, mode='nearest')
+                     ), #deconv2_relu 
+            encoder3_ds # pool3
+        ]) #unpool3_ 
+        decoder5 = torch.cat([
+            self.dec5(F.interpolate(decoder4, #unpool3_
+                                    scale_factor=2, mode='nearest'
+                                   )
+                      ), #deconv3_relu 
+            encoder2_ds # pool2
+        ]) #unpool4_ 
+        decoder6 = torch.cat([
+            self.dec6(F.interpolate(decoder5, #unpool4_
+                                    scale_factor=2, mode='nearest'
+                                   )
+                      ), #deconv4_relu
+            encoder1_ds # pool1
+        ])  #unpool5_ 
+        unpool5 = F.interpolate(decoder6, scale_factor=2, mode='nearest')
+        decoder7 = deconv6_sf = self.dec7(unpool5)
+        
+        
+        ## JOINT
+        
+        joint1 =torch.cat([self.dec1(unpool00), #deconv00_relu_c 
+                           decoder1, # unpool0_ 
+                          ]) #unpool0_c
+        joint2  = torch.cat([self.jointdec2(F.interpolate(joint1, scale_factor=2, mode='nearest')),
+                                decoder2, #unpool1_
+                               ]) #unpool1_c
+        joint3  = torch.cat([self.jointdec3(F.interpolate(joint2, scale_factor=2, mode='nearest')),
+                                decoder3, #unpool2_
+                               ]) #unpool2_c
+        joint4  = torch.cat([self.jointdec4(F.interpolate(joint3, scale_factor=2, mode='nearest')),
+                                decoder4, #unpool3_
+                               ]) #unpool3_c
+        joint5  = torch.cat([self.jointdec5(F.interpolate(joint4, scale_factor=2, mode='nearest')),
+                                decoder5, #unpool4_
+                               ]) #unpool4_c
+        joint6  = torch.cat([
+            self.jointdec6(F.interpolate(joint4, scale_factor=2, mode='nearest')),
+                                decoder6, #unpool5_
+                               ]) #unpool5_c
 
-        decoder1 = self.dec1(torch.cat([F.interpolate(encoder7, 2), decoder?]))
-        decoder2 = self.dec2(torch.cat([F.interpolate(encoder2, 2), decoder2]))
-        decoder3 = self.dec3(torch.cat([F.interpolate(encoder3, 2), decoder3]))
-        decoder4 = self.dec4(torch.cat([F.interpolate(encoder4, 2), decoder4]))
-        decoder5 = self.dec5(torch.cat([F.interpolate(encoder5, 2), decoder5]))
-        decoder6 = self.dec6(torch.cat([F.interpolate(encoder6, 2), decoder6]))
-        decoder6_sigmoid = 
-
-local unpool00 = nn.SpatialUpSamplingNearest(2)(pool7)
-local deconv00 = nn.SpatialConvolution(2048,1024,3,3,1,1,1,1)(unpool00)
-local deconv00_relu = nn.ReLU(true)(deconv00)
-
-local unpool0_ = nn.JoinTable(2)({deconv00_relu, pool6})
-
-local unpool0 = nn.SpatialUpSamplingNearest(2)(unpool0_)
-local deconv0 = nn.SpatialConvolution(1024*2,512,3,3,1,1,1,1)(unpool0)
-local deconv0_relu = nn.ReLU(true)(deconv0)
-
-local unpool1_ = nn.JoinTable(2)({deconv0_relu, pool5})
-
-local unpool1 = nn.SpatialUpSamplingNearest(2)(unpool1_)
-local deconv1 = nn.SpatialConvolution(512*2,256,3,3,1,1,1,1)(unpool1)
-local deconv1_relu = nn.ReLU(true)(deconv1)
-
-local unpool2_ = nn.JoinTable(2)({deconv1_relu, pool4})
-
-local unpool2 = nn.SpatialUpSamplingNearest(2)(unpool2_)
-local deconv2 = nn.SpatialConvolution(256*2,128,3,3,1,1,1,1)(unpool2)
-local deconv2_relu = nn.ReLU(true)(deconv2)
-
-local unpool3_ = nn.JoinTable(2)({deconv2_relu, pool3})
-
-local unpool3 = nn.SpatialUpSamplingNearest(2)(unpool3_)
-local deconv3 = nn.SpatialConvolution(128*2,64,3,3,1,1,1,1)(unpool3)
-local deconv3_relu = nn.ReLU(true)(deconv3)
-
-local unpool4_ = nn.JoinTable(2)({deconv3_relu, pool2})
-
-local unpool4 = nn.SpatialUpSamplingNearest(2)(unpool4_)
-local deconv4 = nn.SpatialConvolution(64*2,32,3,3,1,1,1,1)(unpool4)
-local deconv4_relu = nn.ReLU(true)(deconv4)
-
-local unpool5_ = nn.JoinTable(2)({deconv4_relu, pool1})
-
-local unpool5 = nn.SpatialUpSamplingNearest(2)(unpool5_)
-local deconv5 = nn.SpatialConvolution(32*2,3,3,3,1,1,1,1)(unpool5)
-local deconv6_sf = nn.Sigmoid()(deconv5)        
+        joint2 = self.dec2(torch.cat([F.interpolate(encoder2, 2), decoder2]))
+        joint3 = self.dec3(torch.cat([F.interpolate(encoder3, 2), decoder3]))
+        joint4 = self.dec4(torch.cat([F.interpolate(encoder4, 2), decoder4]))
+        joint5 = self.dec5(torch.cat([F.interpolate(encoder5, 2), decoder5]))
+        joint6 = sigmoid(joint5)
         
 '''
 unpool00 = nn.SpatialUpSamplingNearest(2)(pool7)
@@ -157,9 +204,6 @@ deconv00_relu = nn.ReLU(true)(deconv00)
         ref3 = nn.Linear(256, 64) #(ref2_relu)
         ref3_relu = nn.ReLU(inplace=True) #(ref3)
         roomtype = nn.Linear(64, 11) #(ref3_relu)
-
-
-
 
 
         return decoder6_sigmoid, decoder6_sigmoid_corners, roomtype
