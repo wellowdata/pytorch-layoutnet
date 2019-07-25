@@ -136,11 +136,10 @@ if __name__ == '__main__':
     def count_parameters(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
     model = LayoutNet()
-    print(count_parameters(model))
+    num_params = count_parameters(model)
+    print(num_params - 128187606)
     x = torch.rand(2, 3, 512, 512)
-    layoutnet = LayoutNet()
-    out = layoutnet(x)
-    print(out)
+    #out = model(x)
 
 
 

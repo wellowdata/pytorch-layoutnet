@@ -45,6 +45,18 @@ args = parser.parse_args()
 device = torch.device(args.device)
 '''
 
+# Coping parameters
+def copy_params(idx, parameters, torch_pretrained):
+    for p in parameters:
+        layer_p_num = np.prod(p.size())
+        p.view(-1).copy_(torch.FloatTensor(
+            torch_pretrained[idx:idx+layer_p_num]))
+        idx += layer_p_num
+        print('copy pointer current position: %d' % idx, end='\r', flush=True)
+    return idx
+
+
+
 
 def visual_persp(img_glob, output_dir, device=torch.device("cpu"), path_prefix='ckpt/pre',flip=True,  rotate=[], d1=21, d2=3):
 
@@ -62,8 +74,12 @@ def visual_persp(img_glob, output_dir, device=torch.device("cpu"), path_prefix='
     total_parameter =0
     for p in layoutnet.parameters():
         total_parameter += np.prod(p.size())
-
+    print('pytorch parameters: ', total_parameter)
+    print('t7 file: ', torch_pretrained.shape[0])
+    idx = 0
+    idx = copy_params(idx, layoutnet.parameters(), torch_pretrained)
     torch.save(layoutnet.state_dict(), '/ckpt/persp_pretrained.pth')
+    #layoutnet.load_state_dict(torch.load('/ckpt/persp_pretrained.pth'))
         
     # Load path to visualization
     img_paths = sorted(glob.glob(img_glob))
@@ -73,7 +89,7 @@ def visual_persp(img_glob, output_dir, device=torch.device("cpu"), path_prefix='
     for i_path in img_paths:
         print('img  path:', i_path)
 
-        # Load and cat input images
+        # Load input images
         i_img = np.array(Image.open(i_path).resize((512,512)), np.float32) / 255
         #l_img = np.array(Image.open(l_path), np.float32) / 255
         x_img = i_img.transpose([2, 0, 1])
